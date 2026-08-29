@@ -1,0 +1,83 @@
+{
+  "theme": "dark",
+  "archetype": "ARCHETYPE 4: SWISS & HIGH-CONTRAST (Brutal Accessibility)",
+  "typography": {
+    "font_family": {
+      "headings": "Outfit, sans-serif",
+      "body": "Atkinson Hyperlegible, sans-serif",
+      "install_command": "npm install @fontsource/outfit @fontsource/atkinson-hyperlegible"
+    },
+    "hierarchy": {
+      "h1": "text-5xl sm:text-6xl font-black tracking-tight text-white",
+      "h2": "text-3xl sm:text-4xl font-extrabold tracking-tight text-white",
+      "h3": "text-2xl sm:text-3xl font-bold text-white",
+      "body": "text-xl sm:text-2xl font-medium leading-relaxed text-white",
+      "button": "text-2xl sm:text-3xl font-bold tracking-wide uppercase",
+      "label": "text-lg sm:text-xl font-bold uppercase tracking-widest text-primary"
+    },
+    "alignment": "Strictly Left-aligned for maximum readability. No center alignment for dense text. Headings can be left-aligned."
+  },
+  "colors": {
+    "background": "#000000",
+    "surface": "#111111",
+    "primary": "#FFD600",
+    "primary_foreground": "#000000",
+    "secondary": "#FFFFFF",
+    "secondary_foreground": "#000000",
+    "border": "#FFFFFF",
+    "focus_ring": "#FFD600"
+  },
+  "visual_enhancers": {
+    "surfaces": "Neo-Brutalist High-Contrast. Use hard solid shadows (e.g. `shadow-[6px_6px_0px_0px_#FFFFFF]`) on interactive elements. No soft blurs. Borders must be `border-2` or `border-4` solid white or primary color to ensure maximum visibility.",
+    "icons": "lucide-react. Minimum size 48px (`size={48}`). Icons MUST always be paired with explicit, highly visible text labels. Stroke width should be 2.5 or 3 for maximum visibility.",
+    "hover_active_states": "Invert colors on hover/active. E.g., a white button with black text becomes black with white border and white text. Active states must physically move the button (`translate-x-[4px] translate-y-[4px] shadow-none`)."
+  },
+  "component_path": "/app/frontend/src/components",
+  "grids": {
+    "home_modules": "grid grid-cols-1 gap-6 md:gap-8 w-full max-w-2xl mx-auto",
+    "camera_placeholder": "w-full aspect-[3/4] md:aspect-video border-4 border-dashed border-primary flex flex-col items-center justify-center bg-surface p-8"
+  },
+  "layouts": {
+    "global_structure": "h-screen flex flex-col bg-black overflow-hidden",
+    "header": "fixed top-0 w-full h-24 border-b-4 border-white bg-black z-50 flex items-center justify-between px-6. MUST contain the LIVO logo and a massive voice-assistance (Mic) button.",
+    "main_content": "flex-1 overflow-y-auto mt-24 mb-32 p-6 md:p-12 space-y-8",
+    "bottom_nav": "fixed bottom-0 w-full h-32 border-t-4 border-white bg-black z-50 grid grid-cols-3 gap-2 px-2 py-4. Nav items must be huge, flex-col, icon + text."
+  },
+  "motion": {
+    "transitions": "Snappy and instantaneous. Use `transition-all duration-75`. Avoid long sweeping animations as they can be disorienting for visually impaired users.",
+    "interactions": "Physical click feel (Neo-brutalist translate on active)."
+  },
+  "accessibility": {
+    "contrast": "APCA & WCAG AAA. Text over backgrounds must have extreme contrast (Black/White/Yellow).",
+    "touch_targets": "MINIMUM 80x80px for any tappable area. Main module buttons should be at least 140px tall.",
+    "focus": "All interactive elements MUST have `focus:ring-4 focus:ring-primary focus:outline-none focus:ring-offset-4 focus:ring-offset-black`.",
+    "screen_readers": "Use `aria-label` where visual text isn't descriptive enough, though the design requires all text to be fully descriptive visually. Add `role=\"button\"` to actionable elements.",
+    "data_testid": "MANDATORY. Every button, nav item, and placeholder must have a `data-testid`."
+  },
+  "media": {
+    "strategy": "No complex background images or gradients. Stick to stark, high-contrast solid colors to maximize text visibility and cognitive ease."
+  },
+  "3d_libraries": {},
+  "image_urls": {},
+  "instructions_to_main_agent": [
+    "Install lucide-react for bold, thick icons.",
+    "Install react-router-dom for simple client-side routing between the 4 screens.",
+    "Ensure `react-router-dom` is used to manage the Views: Home, Bill Checker, Cash Assistant, Change Checker.",
+    "Build the UI in React (.jsx or .js if no typescript, but stick to functional components).",
+    "IMPLEMENT A FIXED HEADER: Black bg, solid white border bottom, holding LIVO logo and a massive 'Mic' button (Voice Assistance) with `data-testid='voice-assist-btn'`. Mic button should be bright Yellow (#FFD600) with Black icon.",
+    "IMPLEMENT A FIXED BOTTOM NAV: 3 items (Bill, Cash, Change). Extremely large touch areas. Active state should be highlighted with Yellow text/icon and a top border.",
+    "HOME SCREEN: Large typography tagline 'See. Verify. Pay. Independently.'. Three massive vertical block buttons for the modules.",
+    "MODULE SCREENS: Use a dashed thick border container for the 'Camera/Upload/Scan' placeholders. Add huge solid buttons below them.",
+    "Do NOT use standard Shadcn cards with subtle shadows. Use raw Tailwind to create Brutalist, high-contrast blocks.",
+    "Always pair icons with text. Never rely on an icon alone.",
+    "Do NOT center align paragraphs. Left align for readability. Headings can be left aligned."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Prioritize optical clarity and massive scale over subtle aesthetics.",
+    "Never use grey text. Only White, Black, or Bright Yellow.",
+    "Never use `transparent` backgrounds for headers or footers if content scrolls underneath; use solid #000000.",
+    "Avoid `transition: all`. Be specific, e.g., `transition-transform transition-colors`.",
+    "Ensure all buttons have `data-testid` like `data-testid='nav-bill-checker'`.",
+    "DO NOT implement actual camera/AI logic. Just visual layout and navigation."
+  ]
+}
