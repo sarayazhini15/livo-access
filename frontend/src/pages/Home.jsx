@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ReceiptText, Banknote, Coins, ChevronRight } from "lucide-react";
+import { ReceiptText, Banknote, Coins, ChevronRight, Mic } from "lucide-react";
 
 const modules = [
   {
@@ -40,6 +40,13 @@ export default function Home() {
         <p className="text-lg sm:text-xl text-white leading-relaxed">
           Choose a tool to get started.
         </p>
+        <div data-testid="voice-hint" className="flex items-start gap-3 border-4 border-primary bg-[#111111] p-4">
+          <Mic size={32} strokeWidth={2.5} className="text-primary shrink-0 mt-1" aria-hidden="true" />
+          <p className="text-base sm:text-lg text-white leading-relaxed">
+            Tap <span className="text-primary font-bold uppercase">Voice</span> for hands-free mode, then say
+            {" "}"check my bill", "scan cash", "check my change" or "go home".
+          </p>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-6" aria-label="Modules">

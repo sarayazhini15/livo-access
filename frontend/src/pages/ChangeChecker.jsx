@@ -1,16 +1,17 @@
-import { useRef, useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { ScanLine, Coins, Volume2, Loader2, AlertTriangle, CheckCircle2, Mic } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
+import CameraCapture from "@/components/CameraCapture";
 import { scanCash } from "@/lib/api";
-import { fileToResizedBase64 } from "@/lib/image";
 import { speak, listenOnce, isSpeechRecognitionSupported } from "@/lib/speech";
+import { useVoice } from "@/context/VoiceContext";
 
 const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`;
 
 function parseAmount(text) {
   if (!text) return null;
-  const cleaned = text.replace(/,/g, "").match(/\d+(\.\d+)?/);
-  return cleaned ? parseFloat(cleaned[0]) : null;
+  const m = text.replace(/,/g, "").match(/\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
 }
 
 function AmountField({ label, value, onChange, testid }) {
@@ -39,15 +40,8 @@ function AmountField({ label, value, onChange, testid }) {
       <div className="flex items-stretch gap-3">
         <div className="flex items-center flex-1 border-4 border-white bg-[#111111]">
           <span className="px-4 font-heading text-2xl sm:text-3xl font-black text-primary">₹</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="0"
-            data-testid={testid}
-            className="w-full bg-transparent text-white font-heading text-2xl sm:text-3xl font-bold py-4 pr-4 outline-none focus:ring-4 focus:ring-primary"
-          />
+          <input type="number" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" data-testid={testid}
+            className="w-full bg-transparent text-white font-heading text-2xl sm:text-3xl font-bold py-4 pr-4 outline-none focus:ring-4 focus:ring-primary" />
         </div>
         {supported && (
           <button onClick={startVoice} data-testid={`${testid}-mic`} aria-label={`Say the ${label}`}
@@ -61,12 +55,13 @@ function AmountField({ label, value, onChange, testid }) {
 }
 
 export default function ChangeChecker() {
-  const cameraRef = useRef(null);
+  const [camOpen, setCamOpen] = useState(false);
   const [bill, setBill] = useState("");
   const [tendered, setTendered] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [received, setReceived] = useState(null); // scanned received change result
+  const [received, setReceived] = useState(null);
+  const { handsFree, registerActions, deliverResult } = useVoice();
 
   const billNum = parseFloat(bill) || 0;
   const tenderedNum = parseFloat(tendered) || 0;
@@ -81,22 +76,18 @@ export default function ChangeChecker() {
     else verdict = { type: "extra", text: `You received ${rupees(diff)} extra`, speech: `You received ${diff} rupees extra.` };
   }
 
-  const handleFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  const processImage = useCallback(async (img) => {
     if (tenderedNum <= 0 || billNum <= 0) {
       const msg = "Please enter the bill amount and the cash you handed over first.";
-      setError(msg); speak(msg); return;
+      setError(msg);
+      if (handsFree) deliverResult(msg); else speak(msg);
+      return msg;
     }
-    setError("");
-    setReceived(null);
-    setLoading(true);
-    speak("Scanning the change you received. Please wait.");
+    setError(""); setReceived(null); setLoading(true);
+    if (!handsFree) speak("Scanning the change you received. Please wait.");
     try {
-      const { base64, mimeType } = await fileToResizedBase64(file);
-      const data = await scanCash(base64, mimeType);
-      setReceived(data);
+      const data = await scanCash(img.base64, img.mimeType);
+      setReceived(data); setLoading(false);
       const exp = Math.max(0, +(tenderedNum - billNum).toFixed(2));
       const diff = +((data.total || 0) - exp).toFixed(2);
       let spoken = `Expected change is ${exp} rupees. You received ${data.total || 0} rupees. `;
@@ -104,18 +95,36 @@ export default function ChangeChecker() {
       else if (Math.abs(diff) < 0.5) spoken += "Change is correct.";
       else if (diff < 0) spoken += `You are short by ${Math.abs(diff)} rupees.`;
       else spoken += `You received ${diff} rupees extra.`;
-      speak(spoken);
+      if (handsFree) deliverResult(spoken); else speak(spoken);
+      return spoken;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while scanning the change.";
-      setError(msg); speak(`Sorry. ${msg}`);
-    } finally {
-      setLoading(false);
+      setError(msg); setLoading(false);
+      const spoken = `Sorry. ${msg}`;
+      if (handsFree) deliverResult(spoken); else speak(spoken);
+      return spoken;
     }
-  };
+  }, [billNum, tenderedNum, handsFree, deliverResult]);
 
-  const replay = () => {
-    if (!verdict) return;
-    speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`);
+  useEffect(() => {
+    return registerActions({
+      openCamera: () => setCamOpen(true),
+      closeCamera: () => setCamOpen(false),
+      setBillAmount: (n) => setBill(String(n)),
+      setTendered: (n) => setTendered(String(n)),
+      replay: () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`),
+    });
+  }, [registerActions, verdict, expected, receivedTotal]);
+
+  const replay = () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`);
+
+  const openScan = () => {
+    if (billNum <= 0 || tenderedNum <= 0) {
+      const msg = "Please enter the bill amount and the cash you handed over first.";
+      setError(msg); speak(msg); return;
+    }
+    setError("");
+    setCamOpen(true);
   };
 
   return (
@@ -124,6 +133,8 @@ export default function ChangeChecker() {
         <p className="text-lg font-bold uppercase tracking-widest text-primary">Module</p>
         <h1 className="font-heading text-4xl sm:text-5xl font-black tracking-tight text-white">Change Checker</h1>
       </header>
+
+      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={processImage} title="Change Camera" hint="Lay the change notes flat inside the frame" />
 
       <div className="flex items-start gap-4 border-4 border-white bg-[#111111] p-6">
         <Coins size={48} strokeWidth={2} className="text-primary shrink-0" aria-hidden="true" />
@@ -148,8 +159,7 @@ export default function ChangeChecker() {
         </div>
       </section>
 
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" data-testid="change-camera-input" />
-      <ActionButton icon={ScanLine} label="Scan Received Change" testid="change-scan-btn" variant="primary" onClick={() => cameraRef.current?.click()} />
+      <ActionButton icon={ScanLine} label="Scan Received Change" testid="change-scan-btn" variant="primary" onClick={openScan} />
 
       <div aria-live="polite" className="space-y-4">
         {loading && (

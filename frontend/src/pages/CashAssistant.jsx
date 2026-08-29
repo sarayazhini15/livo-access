@@ -1,54 +1,55 @@
-import { useRef, useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { ScanLine, Banknote, Volume2, Loader2, AlertTriangle } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
 import PlaceholderBlock from "@/components/PlaceholderBlock";
+import CameraCapture from "@/components/CameraCapture";
 import { scanCash } from "@/lib/api";
-import { fileToResizedBase64 } from "@/lib/image";
 import { speak } from "@/lib/speech";
+import { useVoice } from "@/context/VoiceContext";
 
 const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`;
 
 function buildSpeech(r) {
-  if (!r.detected || !r.notes?.length) {
-    return "No currency notes were detected. Please try again with a clearer photo.";
-  }
+  if (!r.detected || !r.notes?.length) return "No currency notes were detected. Please try again with a clearer photo.";
   const parts = ["Detected notes."];
-  r.notes.forEach((n) => {
-    parts.push(`${n.count} note${n.count > 1 ? "s" : ""} of ${rupees(n.denomination)}.`);
-  });
+  r.notes.forEach((n) => parts.push(`${n.count} note${n.count > 1 ? "s" : ""} of ${rupees(n.denomination)}.`));
   parts.push(`Total cash is ${rupees(r.total)}.`);
   return parts.join(" ");
 }
 
 export default function CashAssistant() {
-  const cameraRef = useRef(null);
+  const [camOpen, setCamOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState("");
+  const { handsFree, registerActions, deliverResult } = useVoice();
 
-  const handleFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setError("");
-    setResult(null);
-    setLoading(true);
-    speak("Scanning your cash. Please wait.");
+  const processImage = useCallback(async (img) => {
+    setError(""); setResult(null); setPreview(img.dataUrl); setLoading(true);
+    if (!handsFree) speak("Scanning your cash. Please wait.");
     try {
-      const { base64, mimeType, dataUrl } = await fileToResizedBase64(file);
-      setPreview(dataUrl);
-      const data = await scanCash(base64, mimeType);
-      setResult(data);
-      speak(buildSpeech(data));
+      const data = await scanCash(img.base64, img.mimeType);
+      setResult(data); setLoading(false);
+      const summary = buildSpeech(data);
+      if (handsFree) deliverResult(summary); else speak(summary);
+      return summary;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while scanning the cash.";
-      setError(msg);
-      speak(`Sorry. ${msg}`);
-    } finally {
-      setLoading(false);
+      setError(msg); setLoading(false);
+      const spoken = `Sorry. ${msg}`;
+      if (handsFree) deliverResult(spoken); else speak(spoken);
+      return spoken;
     }
-  };
+  }, [handsFree, deliverResult]);
+
+  useEffect(() => {
+    return registerActions({
+      openCamera: () => setCamOpen(true),
+      closeCamera: () => setCamOpen(false),
+      replay: () => result && speak(buildSpeech(result)),
+    });
+  }, [registerActions, result]);
 
   return (
     <div className="space-y-8" data-testid="cash-assistant-screen">
@@ -57,7 +58,7 @@ export default function CashAssistant() {
         <h1 className="font-heading text-4xl sm:text-5xl font-black tracking-tight text-white">Cash Assistant</h1>
       </header>
 
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" data-testid="cash-camera-input" />
+      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={processImage} title="Cash Camera" hint="Lay the notes flat inside the frame" />
 
       {!preview ? (
         <PlaceholderBlock testid="cash-scan-area">
@@ -71,7 +72,7 @@ export default function CashAssistant() {
         </div>
       )}
 
-      <ActionButton icon={ScanLine} label="Scan Cash" testid="cash-scan-btn" variant="primary" onClick={() => cameraRef.current?.click()} />
+      <ActionButton icon={ScanLine} label="Scan Cash" testid="cash-scan-btn" variant="primary" onClick={() => setCamOpen(true)} />
 
       <section aria-label="Detected notes and total" className="space-y-4" aria-live="polite">
         <div className="flex items-center justify-between">
