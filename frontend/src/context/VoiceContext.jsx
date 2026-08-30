@@ -93,6 +93,14 @@ export function VoiceProvider({ children }) {
     navRef.current(PATH_FOR[key]);
     await wait(150);
     const info = moduleInfo(PATH_FOR[key]);
+    if (key === "cash") {
+      // open the actual Cash Scanner camera interface, same as pressing the button
+      await wait(250);
+      await waitFor(() => !!actionsRef.current.openCamera, 3000);
+      actionsRef.current.openCamera && actionsRef.current.openCamera();
+      await speakAsync("Cash scanner opened.");
+      return;
+    }
     if (/\bgo to\b/.test(phrase)) await speakAsync(`${info.module} opened.`);
     else await speakAsync(`${info.scanner} opened.`);
   }, [speakAsync]);
@@ -106,13 +114,16 @@ export function VoiceProvider({ children }) {
       await waitFor(() => !!actionsRef.current.captureNow, 6000);
     }
     if (!actionsRef.current.captureNow) {
-      await speakAsync("The camera could not start. Say upload to choose a photo instead.");
+      await speakAsync(`Camera access is unavailable. Please upload a ${mod.noun} image.`);
       return;
     }
     setStatus("working");
-    const ok = await actionsRef.current.captureNow();
+    const res = await actionsRef.current.captureNow();
     setStatus("listening");
+    const ok = res && (res === true || res.ok);
+    const reason = res && res.reason;
     if (ok) await speakAsync(`${cap(mod.noun)} captured successfully. Say analyze to read it.`);
+    else if (reason === "no-camera") await speakAsync(`Camera access is unavailable. Please upload a ${mod.noun} image.`);
     else await speakAsync("I could not capture a clear photo. Say upload to choose one instead.");
   }, [speakAsync]);
 

@@ -9,9 +9,12 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const uploadRef = useRef(null);
+  const errorRef = useRef("");
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const voice = useVoice();
+
+  const setErr = useCallback((msg) => { errorRef.current = msg; setError(msg); }, []);
 
   const stop = useCallback(() => {
     if (streamRef.current) {
@@ -48,13 +51,19 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
     stop(); onClose?.(); onCapture?.(img);
   }, [grabFrame, stop, onClose, onCapture]);
 
-  // voice capture -> capture ONLY, no analysis; returns success boolean
+  // voice capture -> capture ONLY, no analysis; returns { ok, reason }
   const voiceCapture = useCallback(async () => {
+    if (errorRef.current || !streamRef.current) {
+      return { ok: false, reason: "no-camera" };
+    }
     const img = await grabFrame();
-    if (!img) { setError("Could not capture a clear photo. Please upload instead."); return false; }
+    if (!img) {
+      setErr("Could not capture a clear photo. Please upload instead.");
+      return { ok: false, reason: (!streamRef.current ? "no-camera" : "no-frame") };
+    }
     stop(); onClose?.(); onCapture?.(img, { analyze: false });
-    return true;
-  }, [grabFrame, stop, onClose, onCapture]);
+    return { ok: true };
+  }, [grabFrame, stop, onClose, onCapture, setErr]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -67,10 +76,10 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
   useEffect(() => {
     let cancelled = false;
     if (!open) return;
-    setError(""); setReady(false);
+    errorRef.current = ""; setError(""); setReady(false);
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Live camera is not supported here. Please upload a photo instead."); return;
+        setErr("Live camera is not supported here. Please upload a photo instead."); return;
       }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
@@ -82,11 +91,11 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
           setReady(true);
         }
       } catch (err) {
-        setError("Camera permission was blocked. Please allow the camera or upload a photo instead.");
+        setErr("Camera permission was blocked. Please allow the camera or upload a photo instead.");
       }
     })();
     return () => { cancelled = true; stop(); };
-  }, [open, stop]);
+  }, [open, stop, setErr]);
 
   // register voice capture trigger while the modal is open
   useEffect(() => {
