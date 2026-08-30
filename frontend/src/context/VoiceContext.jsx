@@ -28,10 +28,14 @@ const PATH_FOR = { bill: "/bill-checker", cash: "/cash-assistant", change: "/cha
 // After a SUCCESSFUL voice analysis, offer to move to the next module (voice yes/no).
 const TRANSITIONS = {
   bill: { ask: "Bill verified. Can we move to Cash?", nextPath: "/cash-assistant", opened: "Cash scanner opened." },
-  cash: { ask: "Cash verified. Can we move to Change?", nextPath: "/change-checker", opened: "Change checker opened." },
 };
 const YES_RE = /\b(yes|yeah|yep|yup|sure|ok|okay|move|proceed|continue|go ahead|please|do)\b/;
 const NO_RE = /\b(no|nope|nah|stay|cancel|don'?t|do not|not now)\b/;
+function parseAmount(text) {
+  if (!text) return null;
+  const m = text.replace(/,/g, "").match(/\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
 
 export function VoiceProvider({ children }) {
   const navigate = useNavigate();
@@ -47,6 +51,10 @@ export function VoiceProvider({ children }) {
   const handsFreeRef = useRef(false);
   const actionsRef = useRef({});
   const recognitionRef = useRef(null);
+  const sharedRef = useRef({ billAmount: null, cashPaid: null });
+
+  const setSharedBill = useCallback((n) => { sharedRef.current.billAmount = n; }, []);
+  const setSharedCash = useCallback((n) => { sharedRef.current.cashPaid = n; }, []);
 
   const registerActions = useCallback((obj) => {
     Object.assign(actionsRef.current, obj);
@@ -88,14 +96,63 @@ export function VoiceProvider({ children }) {
     });
   }, []);
 
+  const askAmount = useCallback(async (prompt) => {
+    for (let i = 0; i < 2; i++) {
+      await speakAsync(prompt);
+      const t = await listenOnceAsync();
+      if (t != null) { const n = parseAmount(t); if (n != null) return n; }
+      await speakAsync("Please say the amount in rupees.");
+    }
+    return null;
+  }, [speakAsync, listenOnceAsync]);
+
+  const runChangeSetup = useCallback(async ({ assumeFromCash = false } = {}) => {
+    let bill = sharedRef.current.billAmount;
+    let cashp = sharedRef.current.cashPaid;
+    if (bill != null && actionsRef.current.setBillAmount) actionsRef.current.setBillAmount(bill);
+    if (cashp != null && actionsRef.current.setTendered) actionsRef.current.setTendered(cashp);
+
+    if (bill == null) {
+      bill = await askAmount(assumeFromCash ? "What was the bill amount?" : "Tell me the bill amount.");
+      if (bill == null) { await speakAsync("I didn't catch the bill amount. You can type it or say it again."); return; }
+      actionsRef.current.setBillAmount && actionsRef.current.setBillAmount(bill);
+      sharedRef.current.billAmount = bill;
+    }
+    if (cashp == null) {
+      cashp = await askAmount("How much cash did you pay?");
+      if (cashp == null) { await speakAsync("I didn't catch the cash amount. You can type it or say it again."); return; }
+      actionsRef.current.setTendered && actionsRef.current.setTendered(cashp);
+      sharedRef.current.cashPaid = cashp;
+    }
+    const expected = Math.max(0, +(cashp - bill).toFixed(2));
+    await speakAsync(`You should receive ${expected} rupees.`);
+    await waitFor(() => !!actionsRef.current.openCamera, 2000);
+    actionsRef.current.openCamera && actionsRef.current.openCamera();
+    await speakAsync("Say capture to scan the change.");
+  }, [askAmount, speakAsync]);
+
   // --- command handling ---
   const doOpen = useCallback(async (key, phrase) => {
     if (key === "change") {
-      // navigate to the real Change Scanner screen and confirm only after it actually opens
       navRef.current(PATH_FOR.change);
       const opened = await waitFor(() => pathRef.current === PATH_FOR.change, 2500);
-      if (opened) await speakAsync("Change scanner opened.");
-      else await speakAsync("I couldn't open the change scanner. Please try again.");
+      if (!opened) { await speakAsync("I couldn't open the change scanner. Please try again."); return; }
+      await speakAsync("Change scanner opened.");
+      await wait(300);
+      await waitFor(() => !!actionsRef.current.setTendered, 2000);
+      const bill = sharedRef.current.billAmount;
+      const cashp = sharedRef.current.cashPaid;
+      if (bill != null && cashp != null) {
+        actionsRef.current.setBillAmount && actionsRef.current.setBillAmount(bill);
+        actionsRef.current.setTendered && actionsRef.current.setTendered(cashp);
+        const expected = Math.max(0, +(cashp - bill).toFixed(2));
+        await speakAsync(`You should receive ${expected} rupees.`);
+        await waitFor(() => !!actionsRef.current.openCamera, 2000);
+        actionsRef.current.openCamera && actionsRef.current.openCamera();
+        await speakAsync("Say capture to scan the change.");
+      } else {
+        await runChangeSetup({ assumeFromCash: false });
+      }
       return;
     }
     navRef.current(PATH_FOR[key]);
@@ -111,7 +168,7 @@ export function VoiceProvider({ children }) {
     }
     if (/\bgo to\b/.test(phrase)) await speakAsync(`${info.module} opened.`);
     else await speakAsync(`${info.scanner} opened.`);
-  }, [speakAsync]);
+  }, [speakAsync, runChangeSetup]);
 
   const doCapture = useCallback(async () => {
     const mod = moduleInfo(pathRef.current);
@@ -170,6 +227,29 @@ export function VoiceProvider({ children }) {
     return true;
   }, [speakAsync, listenOnceAsync]);
 
+  const askCashToChange = useCallback(async () => {
+    await speakAsync("Do you want to check your change?");
+    for (let i = 0; i < 2; i++) {
+      const t = await listenOnceAsync();
+      if (t != null) {
+        const s = t.toLowerCase();
+        if (YES_RE.test(s)) {
+          navRef.current("/change-checker");
+          const opened = await waitFor(() => pathRef.current === "/change-checker", 2500);
+          if (!opened) { await speakAsync("I couldn't open the change scanner. Please try again."); return true; }
+          await speakAsync("Change scanner opened.");
+          await wait(300);
+          await waitFor(() => !!actionsRef.current.setTendered, 2000);
+          await runChangeSetup({ assumeFromCash: true });
+          return true;
+        }
+        if (NO_RE.test(s)) { await speakAsync("Okay."); return true; }
+      }
+      await speakAsync("Please say yes or no.");
+    }
+    return true;
+  }, [speakAsync, listenOnceAsync, runChangeSetup]);
+
   const doAnalyze = useCallback(async () => {
     const mod = moduleInfo(pathRef.current);
     if (!mod) { await speakAsync("Please open a scanner first. Say open bill, open cash, or open change."); return true; }
@@ -182,11 +262,12 @@ export function VoiceProvider({ children }) {
     setStatus("listening");
     if (!res || !res.summary) { await speakAsync("Please capture or upload an image first."); return true; }
     await speakAsync(res.summary);
+    if (res.ok && mod.key === "cash") return await askCashToChange();
     const trans = TRANSITIONS[mod.key];
     if (res.ok && trans) return await askTransition(trans);
     await speakAsync("What next?");
     return true;
-  }, [speakAsync, askTransition]);
+  }, [speakAsync, askTransition, askCashToChange]);
 
   const handleCommand = useCallback(async (transcript) => {
     const s = transcript.toLowerCase().trim();
@@ -202,12 +283,37 @@ export function VoiceProvider({ children }) {
       navRef.current("/"); await speakAsync("Home opened."); return true;
     }
 
+    const maybeExpected = async () => {
+      const b = sharedRef.current.billAmount, c = sharedRef.current.cashPaid;
+      if (b != null && c != null) {
+        const e = Math.max(0, +(c - b).toFixed(2));
+        await speakAsync(`You should receive ${e} rupees. Say scan change when ready.`);
+      }
+    };
+
+    // change amount entry by voice — fills the REAL fields + shared store (only on Change screen)
+    if (pathRef.current === "/change-checker" && /\d/.test(s) && !/\b(scan|open|capture)\b/.test(s)) {
+      const n = parseAmount(s);
+      if (n != null && /\bbill\b/.test(s)) {
+        a.setBillAmount && a.setBillAmount(n); setSharedBill(n);
+        await speakAsync(`Bill amount set to ${n} rupees.`);
+        await maybeExpected();
+        return true;
+      }
+      if (n != null && /\b(paid|pay|cash|gave|give|handed|tender)\b/.test(s)) {
+        a.setTendered && a.setTendered(n); setSharedCash(n);
+        await speakAsync(`Cash paid set to ${n} rupees.`);
+        await maybeExpected();
+        return true;
+      }
+    }
+
     // explicit cash / change scanner open commands (priority over generic capture)
     if (/\b(cash)\b/.test(s) && /\b(scan|open)\b/.test(s)) { await doOpen("cash", s); return true; }
     if (/\b(change)\b/.test(s) && /\b(scan|open)\b/.test(s)) { await doOpen("change", s); return true; }
 
     // capture
-    if (/\b(capture|take a photo|take photo|scan now|snap|shoot|take picture)\b/.test(s)) {
+    if (/\b(capture|take a photo|take photo|scan now|snap|shoot|take picture|scan again|try again|rescan)\b/.test(s)) {
       await doCapture(); await speakAsync("What next?"); return true;
     }
     // upload
@@ -224,14 +330,14 @@ export function VoiceProvider({ children }) {
       return true;
     }
 
-    // open / go to scanner
-    const wantsOpen = /\b(open|go to|switch to|start)\b/.test(s);
+    // open / go to scanner (avoid triggering on amount phrases like "bill amount 180")
+    const wantsOpen = /\b(open|go to|switch to|start|scan)\b/.test(s);
     let target = null;
     if (/\b(bill|receipt|invoice)\b/.test(s)) target = "bill";
     else if (/\b(cash|money|notes|currency)\b/.test(s)) target = "cash";
     else if (/\b(change)\b/.test(s)) target = "change";
 
-    if (target) { await doOpen(target, s); return true; }
+    if (target && (wantsOpen || !/\d/.test(s))) { await doOpen(target, s); return true; }
     if (wantsOpen && !target) {
       await speakAsync("Which scanner would you like to open: bill, cash, or change?");
       return true;
@@ -239,7 +345,7 @@ export function VoiceProvider({ children }) {
 
     await speakAsync(`I did not understand ${transcript}. You can say open bill, open cash, open change, capture, upload, analyze, go home, or go back.`);
     return true;
-  }, [doCapture, doUpload, doAnalyze, doOpen, speakAsync]);
+  }, [doCapture, doUpload, doAnalyze, doOpen, speakAsync, setSharedBill, setSharedCash]);
 
   const runLoop = useCallback(async () => {
     await speakAsync("Voice assistant ready. Say open bill, open cash, open change, or go home. Say stop to exit.");
@@ -283,6 +389,6 @@ export function VoiceProvider({ children }) {
 
   useEffect(() => () => stopHandsFree(), [stopHandsFree]);
 
-  const value = { handsFree, status, supported, toggleHandsFree, startHandsFree, stopHandsFree, registerActions };
+  const value = { handsFree, status, supported, toggleHandsFree, startHandsFree, stopHandsFree, registerActions, setSharedBill, setSharedCash };
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }

@@ -230,14 +230,16 @@ CASH_SYSTEM = (
 )
 
 CASH_PROMPT = (
-    "Look at this image of cash. Identify every visible Indian Rupee banknote. "
+    "Look at this image of cash. Identify every clearly visible Indian Rupee banknote. "
     "Valid denominations are 1, 2, 5, 10, 20, 50, 100, 200, 500, 2000. "
     "Return ONLY a JSON object with this exact shape:\n"
     "{\n"
     '  "notes": [{"denomination": number, "count": number}]\n'
     "}\n"
     "Group identical denominations together with a count. "
-    "If you cannot clearly identify any note, return an empty notes array. Return JSON only."
+    "NEVER guess. Only include a note when you are confident of its denomination. "
+    "If a note is blurry, overlapping, partially hidden, or poorly lit, leave it out. "
+    "If you cannot confidently identify any note, return an empty notes array. Return JSON only."
 )
 
 

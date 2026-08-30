@@ -93,11 +93,12 @@ export default function ChangeChecker() {
       setReceived(data); setLoading(false);
       const exp = Math.max(0, +(t - b).toFixed(2));
       const diff = +((data.total || 0) - exp).toFixed(2);
-      let spoken = `Expected change is ${exp} rupees. You received ${data.total || 0} rupees. `;
-      if (!data.detected) spoken = "No notes detected in the change. Please try again with a clearer photo.";
-      else if (Math.abs(diff) < 0.5) spoken += "Change is correct.";
-      else if (diff < 0) spoken += `You are short by ${Math.abs(diff)} rupees.`;
-      else spoken += `You received ${diff} rupees extra.`;
+      if (!data.detected) {
+        return { ok: false, reason: "unclear", spoken: "I can't clearly identify the change. Please scan again." };
+      }
+      let spoken;
+      if (Math.abs(diff) < 0.5) spoken = "Change is correct.";
+      else spoken = `You should receive ${exp} rupees, but I detected ${data.total} rupees.`;
       return { ok: true, spoken };
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while scanning the change.";
@@ -112,6 +113,7 @@ export default function ChangeChecker() {
       const r = await runAnalysis(img);
       if (r.ok) speak(r.spoken);
       else if (r.reason === "amounts") speak("Please enter the bill amount and the cash you handed over first.");
+      else if (r.reason === "unclear") speak(r.spoken);
       else speak("Sorry, I could not scan the change. Please try again.");
     }
   }, [runAnalysis]);
@@ -156,6 +158,7 @@ export default function ChangeChecker() {
         const r = await runAnalysis(pendingRef.current);
         if (r.ok) return { summary: r.spoken, ok: true };
         if (r.reason === "amounts") return { summary: "Please enter the bill amount and the cash you handed over first.", ok: false };
+        if (r.reason === "unclear") return { summary: r.spoken, ok: false };
         return { summary: "Sorry, I could not scan the change. Please try again.", ok: false };
       },
       replay: () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`),

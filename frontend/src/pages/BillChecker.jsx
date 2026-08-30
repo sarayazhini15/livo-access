@@ -33,18 +33,20 @@ export default function BillChecker() {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState("");
-  const { registerActions } = useVoice();
+  const { registerActions, setSharedBill } = useVoice();
 
   const runAnalysis = useCallback(async (img) => {
     setError(""); setResult(null); setLoading(true);
     try {
       const data = await analyzeBill(img.base64, img.mimeType);
-      setResult(data); setLoading(false); return data;
+      setResult(data); setLoading(false);
+      if (data?.verified && setSharedBill) setSharedBill(data.total);
+      return data;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while reading the bill.";
       setError(msg); setLoading(false); return null;
     }
-  }, []);
+  }, [setSharedBill]);
 
   const handleImage = useCallback(async (img, opts = {}) => {
     setPreview(img.dataUrl); pendingRef.current = img; setResult(null); setError("");

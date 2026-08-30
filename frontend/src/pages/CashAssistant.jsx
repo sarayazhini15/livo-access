@@ -18,7 +18,7 @@ function fullSpeech(r) {
   return parts.join(" ");
 }
 function voiceSummary(r) {
-  if (!r.detected || !r.notes?.length) return "No notes detected. Please try again with a clearer photo.";
+  if (!r.detected || !r.notes?.length) return "I can't clearly identify the cash. Can you scan again? Please keep the notes clearly visible.";
   const count = r.notes.reduce((a, n) => a + n.count, 0);
   return `I detected ${count} note${count > 1 ? "s" : ""}. Your total cash is ${rupees(r.total)}.`;
 }
@@ -32,18 +32,20 @@ export default function CashAssistant() {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState("");
-  const { registerActions } = useVoice();
+  const { registerActions, setSharedCash } = useVoice();
 
   const runAnalysis = useCallback(async (img) => {
     setError(""); setResult(null); setLoading(true);
     try {
       const data = await scanCash(img.base64, img.mimeType);
-      setResult(data); setLoading(false); return data;
+      setResult(data); setLoading(false);
+      if (data?.detected && setSharedCash) setSharedCash(data.total);
+      return data;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while scanning the cash.";
       setError(msg); setLoading(false); return null;
     }
-  }, []);
+  }, [setSharedCash]);
 
   const handleImage = useCallback(async (img, opts = {}) => {
     setPreview(img.dataUrl); pendingRef.current = img; setResult(null); setError("");
