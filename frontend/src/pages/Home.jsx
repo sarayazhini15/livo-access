@@ -43,8 +43,8 @@ export default function Home() {
         <div data-testid="voice-hint" className="flex items-start gap-3 border-4 border-primary bg-[#111111] p-4">
           <Mic size={32} strokeWidth={2.5} className="text-primary shrink-0 mt-1" aria-hidden="true" />
           <p className="text-base sm:text-lg text-white leading-relaxed">
-            Tap <span className="text-primary font-bold uppercase">Voice</span> for hands-free mode, then say
-            {" "}"check my bill", "scan cash", "check my change" or "go home".
+            Tap <span className="text-primary font-bold uppercase">Voice</span>, then say
+            {" "}"open bill", "capture", "analyze", "go home" or "go back".
           </p>
         </div>
       </section>

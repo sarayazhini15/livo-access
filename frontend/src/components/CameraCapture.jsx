@@ -1,9 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Camera, Upload, X, Aperture } from "lucide-react";
+import { Upload, X, Aperture } from "lucide-react";
 import { fileToResizedBase64 } from "@/lib/image";
 import { useVoice } from "@/context/VoiceContext";
 
 // Live camera modal with a guide frame. Falls back to file upload if camera is unavailable.
+// onCapture(img, opts) — opts.analyze defaults to true (tap). Voice capture passes { analyze: false }.
 export default function CameraCapture({ open, onClose, onCapture, title = "Camera", hint = "Position inside the frame" }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -23,8 +24,7 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
   const grabFrame = useCallback(async () => {
     const v = videoRef.current;
     if (!v) return null;
-    // wait for a valid frame
-    for (let i = 0; i < 20 && (!v.videoWidth || !v.videoHeight); i++) {
+    for (let i = 0; i < 25 && (!v.videoWidth || !v.videoHeight); i++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     if (!v.videoWidth) return null;
@@ -41,47 +41,39 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
     return { base64: dataUrl.split(",")[1], mimeType: "image/jpeg", dataUrl };
   }, []);
 
-  const doCapture = useCallback(async () => {
+  // tap capture -> capture AND analyze (default)
+  const tapCapture = useCallback(async () => {
     const img = await grabFrame();
-    if (!img) {
-      setError("Could not capture a clear photo. Please try again or upload instead.");
-      return;
-    }
-    stop();
-    onClose?.();
-    onCapture?.(img);
+    if (!img) { setError("Could not capture a clear photo. Please try again or upload instead."); return; }
+    stop(); onClose?.(); onCapture?.(img);
+  }, [grabFrame, stop, onClose, onCapture]);
+
+  // voice capture -> capture ONLY, no analysis; returns success boolean
+  const voiceCapture = useCallback(async () => {
+    const img = await grabFrame();
+    if (!img) { setError("Could not capture a clear photo. Please upload instead."); return false; }
+    stop(); onClose?.(); onCapture?.(img, { analyze: false });
+    return true;
   }, [grabFrame, stop, onClose, onCapture]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    try {
-      const img = await fileToResizedBase64(file);
-      stop();
-      onClose?.();
-      onCapture?.(img);
-    } catch (err) {
-      setError(err.message || "Could not read the image.");
-    }
+    try { const img = await fileToResizedBase64(file); stop(); onClose?.(); onCapture?.(img); }
+    catch (err) { setError(err.message || "Could not read the image."); }
   };
 
-  // start camera when opened
   useEffect(() => {
     let cancelled = false;
     if (!open) return;
-    setError("");
-    setReady(false);
+    setError(""); setReady(false);
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Live camera is not supported here. Please upload a photo instead.");
-        return;
+        setError("Live camera is not supported here. Please upload a photo instead."); return;
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
         if (videoRef.current) {
@@ -96,11 +88,11 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
     return () => { cancelled = true; stop(); };
   }, [open, stop]);
 
-  // register capture trigger for hands-free voice control
+  // register voice capture trigger while the modal is open
   useEffect(() => {
     if (!open || !voice) return;
-    return voice.registerActions({ triggerCapture: doCapture });
-  }, [open, voice, doCapture]);
+    return voice.registerActions({ captureNow: voiceCapture });
+  }, [open, voice, voiceCapture]);
 
   if (!open) return null;
 
@@ -118,7 +110,6 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
         {!error ? (
           <>
             <video ref={videoRef} playsInline muted autoPlay className="w-full h-full object-cover" data-testid="camera-video" />
-            {/* guide frame */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
               <div className="w-full max-w-2xl aspect-[4/3] border-4 border-dashed border-primary" />
             </div>
@@ -142,7 +133,7 @@ export default function CameraCapture({ open, onClose, onCapture, title = "Camer
 
       <div className="shrink-0 border-t-4 border-white p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
         {!error && (
-          <button onClick={doCapture} data-testid="camera-capture-btn" aria-label="Capture photo"
+          <button onClick={tapCapture} data-testid="camera-capture-btn" aria-label="Capture photo"
             className="min-h-[80px] flex items-center justify-center gap-3 bg-primary text-black border-4 border-primary font-heading text-2xl sm:text-3xl font-bold uppercase shadow-[6px_6px_0px_0px_#FFFFFF] active:translate-x-[6px] active:translate-y-[6px] active:shadow-none transition-transform duration-75 focus:outline-none focus:ring-4 focus:ring-white focus:ring-offset-4 focus:ring-offset-black">
             <Aperture size={40} strokeWidth={2.5} aria-hidden="true" /> Capture
           </button>

@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { ScanLine, Coins, Volume2, Loader2, AlertTriangle, CheckCircle2, Mic } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
 import CameraCapture from "@/components/CameraCapture";
 import { scanCash } from "@/lib/api";
+import { fileToResizedBase64 } from "@/lib/image";
 import { speak, listenOnce, isSpeechRecognitionSupported } from "@/lib/speech";
 import { useVoice } from "@/context/VoiceContext";
 
@@ -17,7 +18,6 @@ function parseAmount(text) {
 function AmountField({ label, value, onChange, testid }) {
   const [listening, setListening] = useState(false);
   const supported = isSpeechRecognitionSupported();
-
   const startVoice = () => {
     speak(`Say the ${label}.`);
     setTimeout(() => {
@@ -33,7 +33,6 @@ function AmountField({ label, value, onChange, testid }) {
       });
     }, 700);
   };
-
   return (
     <div className="space-y-2">
       <label className="block text-lg font-bold uppercase tracking-widest text-primary">{label}</label>
@@ -55,16 +54,22 @@ function AmountField({ label, value, onChange, testid }) {
 }
 
 export default function ChangeChecker() {
+  const uploadRef = useRef(null);
+  const uploadResolverRef = useRef(null);
+  const pendingRef = useRef(null);
+  const billRef = useRef(0);
+  const tenderedRef = useRef(0);
   const [camOpen, setCamOpen] = useState(false);
   const [bill, setBill] = useState("");
   const [tendered, setTendered] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [received, setReceived] = useState(null);
-  const { handsFree, registerActions, deliverResult } = useVoice();
+  const { registerActions } = useVoice();
 
   const billNum = parseFloat(bill) || 0;
   const tenderedNum = parseFloat(tendered) || 0;
+  billRef.current = billNum; tenderedRef.current = tenderedNum;
   const expected = Math.max(0, +(tenderedNum - billNum).toFixed(2));
   const receivedTotal = received?.total || 0;
 
@@ -76,45 +81,54 @@ export default function ChangeChecker() {
     else verdict = { type: "extra", text: `You received ${rupees(diff)} extra`, speech: `You received ${diff} rupees extra.` };
   }
 
-  const processImage = useCallback(async (img) => {
-    if (tenderedNum <= 0 || billNum <= 0) {
-      const msg = "Please enter the bill amount and the cash you handed over first.";
-      setError(msg);
-      if (handsFree) deliverResult(msg); else speak(msg);
-      return msg;
+  const runAnalysis = useCallback(async (img) => {
+    const b = billRef.current, t = tenderedRef.current;
+    if (b <= 0 || t <= 0) {
+      setError("Please enter the bill amount and the cash you handed over first.");
+      return { ok: false, reason: "amounts" };
     }
     setError(""); setReceived(null); setLoading(true);
-    if (!handsFree) speak("Scanning the change you received. Please wait.");
     try {
       const data = await scanCash(img.base64, img.mimeType);
       setReceived(data); setLoading(false);
-      const exp = Math.max(0, +(tenderedNum - billNum).toFixed(2));
+      const exp = Math.max(0, +(t - b).toFixed(2));
       const diff = +((data.total || 0) - exp).toFixed(2);
       let spoken = `Expected change is ${exp} rupees. You received ${data.total || 0} rupees. `;
       if (!data.detected) spoken = "No notes detected in the change. Please try again with a clearer photo.";
       else if (Math.abs(diff) < 0.5) spoken += "Change is correct.";
       else if (diff < 0) spoken += `You are short by ${Math.abs(diff)} rupees.`;
       else spoken += `You received ${diff} rupees extra.`;
-      if (handsFree) deliverResult(spoken); else speak(spoken);
-      return spoken;
+      return { ok: true, spoken };
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while scanning the change.";
       setError(msg); setLoading(false);
-      const spoken = `Sorry. ${msg}`;
-      if (handsFree) deliverResult(spoken); else speak(spoken);
-      return spoken;
+      return { ok: false, reason: "error" };
     }
-  }, [billNum, tenderedNum, handsFree, deliverResult]);
+  }, []);
 
-  useEffect(() => {
-    return registerActions({
-      openCamera: () => setCamOpen(true),
-      closeCamera: () => setCamOpen(false),
-      setBillAmount: (n) => setBill(String(n)),
-      setTendered: (n) => setTendered(String(n)),
-      replay: () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`),
-    });
-  }, [registerActions, verdict, expected, receivedTotal]);
+  const handleImage = useCallback(async (img, opts = {}) => {
+    pendingRef.current = img; setError("");
+    if (opts.analyze !== false) {
+      const r = await runAnalysis(img);
+      if (r.ok) speak(r.spoken);
+      else if (r.reason === "amounts") speak("Please enter the bill amount and the cash you handed over first.");
+      else speak("Sorry, I could not scan the change. Please try again.");
+    }
+  }, [runAnalysis]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    const voiceResolve = uploadResolverRef.current; uploadResolverRef.current = null;
+    if (!file) { voiceResolve && voiceResolve(false); return; }
+    try {
+      const img = await fileToResizedBase64(file);
+      await handleImage(img, { analyze: !voiceResolve });
+      voiceResolve && voiceResolve(true);
+    } catch (err) {
+      setError(err.message); voiceResolve ? voiceResolve(false) : speak(`Sorry. ${err.message}`);
+    }
+  };
 
   const replay = () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`);
 
@@ -123,9 +137,30 @@ export default function ChangeChecker() {
       const msg = "Please enter the bill amount and the cash you handed over first.";
       setError(msg); speak(msg); return;
     }
-    setError("");
-    setCamOpen(true);
+    setError(""); setCamOpen(true);
   };
+
+  useEffect(() => {
+    return registerActions({
+      openCamera: () => setCamOpen(true),
+      closeCamera: () => setCamOpen(false),
+      setBillAmount: (n) => setBill(String(n)),
+      setTendered: (n) => setTendered(String(n)),
+      uploadImage: () => new Promise((resolve) => {
+        uploadResolverRef.current = resolve;
+        uploadRef.current?.click();
+        setTimeout(() => { if (uploadResolverRef.current) { const r = uploadResolverRef.current; uploadResolverRef.current = null; r(false); } }, 60000);
+      }),
+      analyzePending: async () => {
+        if (!pendingRef.current) return null;
+        const r = await runAnalysis(pendingRef.current);
+        if (r.ok) return r.spoken;
+        if (r.reason === "amounts") return "Please enter the bill amount and the cash you handed over first.";
+        return "Sorry, I could not scan the change. Please try again.";
+      },
+      replay: () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`),
+    });
+  }, [registerActions, runAnalysis, verdict, expected, receivedTotal]);
 
   return (
     <div className="space-y-8" data-testid="change-checker-screen">
@@ -134,7 +169,8 @@ export default function ChangeChecker() {
         <h1 className="font-heading text-4xl sm:text-5xl font-black tracking-tight text-white">Change Checker</h1>
       </header>
 
-      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={processImage} title="Change Camera" hint="Lay the change notes flat inside the frame" />
+      <input ref={uploadRef} type="file" accept="image/*" onChange={handleUpload} className="hidden" data-testid="change-upload-input" />
+      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={handleImage} title="Change Camera" hint="Lay the change notes flat inside the frame" />
 
       <div className="flex items-start gap-4 border-4 border-white bg-[#111111] p-6">
         <Coins size={48} strokeWidth={2} className="text-primary shrink-0" aria-hidden="true" />

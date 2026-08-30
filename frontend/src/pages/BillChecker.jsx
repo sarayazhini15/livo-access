@@ -10,61 +10,81 @@ import { useVoice } from "@/context/VoiceContext";
 
 const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`;
 
-function buildSpeech(r) {
-  const parts = [];
-  parts.push(`Bill from ${r.merchant}.`);
+function fullSpeech(r) {
+  const parts = [`Bill from ${r.merchant}.`];
   if (r.date && r.date !== "Not found") parts.push(`Dated ${r.date}.`);
-  (r.items || []).forEach((it) => {
-    parts.push(`${it.name}, ${it.quantity} at ${rupees(it.unit_price)} each, total ${rupees(it.line_total)}.`);
-  });
+  (r.items || []).forEach((it) => parts.push(`${it.name}, ${it.quantity} at ${rupees(it.unit_price)} each, total ${rupees(it.line_total)}.`));
   parts.push(`Subtotal ${rupees(r.subtotal)}. Tax ${rupees(r.tax)}. Final total ${rupees(r.total)}.`);
   if (r.verified) parts.push("Bill verified. The calculations are correct.");
   else { parts.push("Check bill. There is a problem."); (r.issues || []).forEach((i) => parts.push(i)); }
   return parts.join(" ");
 }
+function voiceSummary(r) {
+  if (r.verified) return `Bill verified. Total ${rupees(r.total)}.`;
+  return `Check bill. ${(r.issues && r.issues[0]) || "The totals do not match."} Total ${rupees(r.total)}.`;
+}
 
 export default function BillChecker() {
   const uploadRef = useRef(null);
+  const uploadResolverRef = useRef(null);
+  const pendingRef = useRef(null);
   const [camOpen, setCamOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState("");
-  const { handsFree, registerActions, deliverResult } = useVoice();
+  const { registerActions } = useVoice();
 
-  const processImage = useCallback(async (img) => {
-    setError(""); setResult(null); setPreview(img.dataUrl); setLoading(true);
-    if (!handsFree) speak("Reading your bill. Please wait.");
+  const runAnalysis = useCallback(async (img) => {
+    setError(""); setResult(null); setLoading(true);
     try {
       const data = await analyzeBill(img.base64, img.mimeType);
-      setResult(data); setLoading(false);
-      const summary = buildSpeech(data);
-      if (handsFree) deliverResult(summary); else speak(summary);
-      return summary;
+      setResult(data); setLoading(false); return data;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while reading the bill.";
-      setError(msg); setLoading(false);
-      const spoken = `Sorry. ${msg}`;
-      if (handsFree) deliverResult(spoken); else speak(spoken);
-      return spoken;
+      setError(msg); setLoading(false); return null;
     }
-  }, [handsFree, deliverResult]);
+  }, []);
+
+  const handleImage = useCallback(async (img, opts = {}) => {
+    setPreview(img.dataUrl); pendingRef.current = img; setResult(null); setError("");
+    if (opts.analyze !== false) {
+      const data = await runAnalysis(img);
+      if (data) speak(fullSpeech(data)); else speak("Sorry, I could not read the bill. Please try again.");
+    }
+  }, [runAnalysis]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    const voiceResolve = uploadResolverRef.current; uploadResolverRef.current = null;
+    if (!file) { voiceResolve && voiceResolve(false); return; }
+    try {
+      const img = await fileToResizedBase64(file);
+      await handleImage(img, { analyze: !voiceResolve });
+      voiceResolve && voiceResolve(true);
+    } catch (err) {
+      setError(err.message); voiceResolve ? voiceResolve(false) : speak(`Sorry. ${err.message}`);
+    }
+  };
 
   useEffect(() => {
     return registerActions({
       openCamera: () => setCamOpen(true),
       closeCamera: () => setCamOpen(false),
-      replay: () => result && speak(buildSpeech(result)),
+      uploadImage: () => new Promise((resolve) => {
+        uploadResolverRef.current = resolve;
+        uploadRef.current?.click();
+        setTimeout(() => { if (uploadResolverRef.current) { const r = uploadResolverRef.current; uploadResolverRef.current = null; r(false); } }, 60000);
+      }),
+      analyzePending: async () => {
+        if (!pendingRef.current) return null;
+        const data = await runAnalysis(pendingRef.current);
+        return data ? voiceSummary(data) : "Sorry, I could not read your bill. Please try again.";
+      },
+      replay: () => result && speak(fullSpeech(result)),
     });
-  }, [registerActions, result]);
-
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try { const img = await fileToResizedBase64(file); processImage(img); }
-    catch (err) { setError(err.message); speak(`Sorry. ${err.message}`); }
-  };
+  }, [registerActions, runAnalysis, result]);
 
   return (
     <div className="space-y-8" data-testid="bill-checker-screen">
@@ -74,7 +94,7 @@ export default function BillChecker() {
       </header>
 
       <input ref={uploadRef} type="file" accept="image/*" onChange={handleUpload} className="hidden" data-testid="bill-upload-input" />
-      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={processImage} title="Bill Camera" hint="Fit the whole bill inside the frame" />
+      <CameraCapture open={camOpen} onClose={() => setCamOpen(false)} onCapture={handleImage} title="Bill Camera" hint="Fit the whole bill inside the frame" />
 
       {!preview ? (
         <PlaceholderBlock testid="bill-capture-area">
@@ -97,7 +117,7 @@ export default function BillChecker() {
         <div className="flex items-center justify-between">
           <h2 className="font-heading text-2xl sm:text-3xl font-extrabold text-white">Result</h2>
           {result && (
-            <button onClick={() => speak(buildSpeech(result))} data-testid="bill-replay-btn" aria-label="Read result aloud again"
+            <button onClick={() => speak(fullSpeech(result))} data-testid="bill-replay-btn" aria-label="Read result aloud again"
               className="flex items-center gap-2 bg-primary text-black border-4 border-primary px-4 h-14 font-heading font-bold uppercase active:translate-x-[3px] active:translate-y-[3px] transition-transform duration-75 focus:outline-none focus:ring-4 focus:ring-white focus:ring-offset-2 focus:ring-offset-black">
               <Volume2 size={28} strokeWidth={2.5} aria-hidden="true" /> Replay
             </button>

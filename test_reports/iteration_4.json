@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend regression after voice-engine refactor and capture/analyze split. Mobile viewport (390x844) against public REACT_APP_BACKEND_URL. Generated realistic receipts and INR-note images via /app/backend/tests/image_factory.py and drove the hidden camera-upload-input (same processImage pipeline used by Capture) plus the page-level bill-upload-input. All 6 requested regression flows PASSED with 0 console errors and 0 page errors across Home/Bill/Cash/Change screens.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "voice_toggle": "PASS — aria-pressed false->true->false on two clicks; label toggles to Listening; no console error; voice-unsupported-note not shown (Chromium reports SpeechRecognition supported).",
+    "bill_tap_camera_upload_correct_receipt": "PASS — bill-take-photo-btn opens camera-modal; camera-upload-input -> bill-status='BILL VERIFIED'.",
+    "bill_page_upload_wrong_receipt": "PASS — bill-upload-input analyzed wrong-math receipt; bill-status='CHECK BILL' with bill-issues list rendered.",
+    "cash_scan_camera_upload": "PASS — cash-scan-btn opens camera-modal; camera-upload-input -> cash-detected-area populated and cash-total-area shows '₹1170.00' for 500+500+100+50+20.",
+    "change_error_before_amounts": "PASS — clicking change-scan-btn with empty inputs shows change-error and does not open camera.",
+    "change_expected_and_verdict": "PASS — bill=420 tendered=500 -> expected-change-area shows ₹80.00; camera-upload-input with change-notes image -> change-verdict='Change is correct'."
+  },
+  "test_report_links": [
+    "/app/backend/tests/image_factory.py",
+    "/app/backend/tests/test_livo_vision.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Real browser SpeechRecognition cannot be exercised with synthetic audio in automation; the voice engine is validated indirectly via the shared processImage path (Upload Instead / bill-upload-input) which is the same code path voice's uploadImage/analyzePending exercise. Consider a debug-only hook to inject a fake transcript for E2E coverage.",
+    "ChangeChecker.openScan correctly gates camera on both amounts>0, matching iteration_3 feedback. Voice's openCamera action, however, calls setCamOpen(true) directly without the same gating — a voice user could 'open change' scanner without amounts. Consider having voice openCamera reuse openScan() so the same guard applies.",
+    "VoiceContext.doCapture opens the scanner (openCamera) if captureNow isn't registered yet and waits 6s; on slow permissions this can silently fail (falls through to 'The camera could not start'). Fine for now, but consider surfacing a visible on-screen toast in addition to TTS.",
+    "CameraCapture: tapCapture still stop()+onClose() before onCapture; if grabFrame fails, modal closes without user seeing the setError. Same nit as iter_3.",
+    "voice-assist-btn label swaps between 'Voice' / 'Listening' / 'Working' but the DOM only exposes label text on sm+ screens (hidden sm:inline). On mobile (390x844) the visible label is only the icon; the aria-label still updates correctly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (prev iter, not retested)", "frontend": "100% (6/6 regression flows)"},
+  "test_credentials": "n/a (no auth)",
+  "seed_data_creation": "Ephemeral /tmp images: correct_receipt.jpg, wrong_receipt.jpg, cash_notes.jpg, change_notes.jpg via image_factory.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bottom-nav testids are nav-bill-checker / nav-cash-assistant / nav-change-checker (NOT nav-bill etc). Use camera-upload-input to drive the same processImage pipeline as tap-Capture. Vision endpoints take 5-15s; use 45-60s timeouts. Voice hands-free relies on browser SpeechRecognition — headless Chromium reports it supported; TTS may auto-play but does not crash. The voice-engine refactor (capture/analyze split, per-route active module, registerActions registry) is stable in this preview.",
+  "rca of the issue": "N/A — no bugs found in this regression pass."
+}
