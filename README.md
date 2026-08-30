@@ -2,6 +2,8 @@
 ## 🚀 Live Demo
 
 👉 **[Try LIVO Live](https://livo-access-1.emergent.host)**
+## 🎥 Demo Video
+▶️ [WATCH THE LIVO DEMO](https://youtu.be/e_ojnkvkTdc)
 
 No installation required — open the link to try the application.
 > **LIVO (Look • Interpret • Verify • Operate)** is an AI-powered visual assistance application designed to help users understand everyday financial information such as bills, receipts, and Indian currency through a simple camera-based interface.
