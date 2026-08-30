@@ -156,6 +156,23 @@ export function VoiceProvider({ children }) {
 
     const expected = Math.max(0, +(cashp - bill).toFixed(2));
     await speakAsync(`Expected change is ${expected} rupees.`);
+
+    // Ask before opening the real scanner; open ONLY on an explicit yes.
+    await speakAsync("Should I open the scanner?");
+    for (let i = 0; i < 3; i++) {
+      const t = await listenOnceAsync();
+      if (t != null) {
+        const r = t.toLowerCase();
+        if (YES_RE.test(r)) {
+          await waitFor(() => !!actionsRef.current.openCamera, 2000);
+          if (actionsRef.current.openCamera) { actionsRef.current.openCamera(); await speakAsync("Change scanner opened."); }
+          else await speakAsync("I couldn't open the change scanner. Please try again.");
+          return;
+        }
+        if (NO_RE.test(r)) { await speakAsync("Okay."); return; }
+      }
+      await speakAsync("I didn't understand. Should I open the scanner? Please say yes or no.");
+    }
   }, [speakAsync, listenOnceAsync]);
 
   // --- command handling ---
