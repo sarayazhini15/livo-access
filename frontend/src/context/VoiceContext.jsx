@@ -90,6 +90,14 @@ export function VoiceProvider({ children }) {
 
   // --- command handling ---
   const doOpen = useCallback(async (key, phrase) => {
+    if (key === "change") {
+      // navigate to the real Change Scanner screen and confirm only after it actually opens
+      navRef.current(PATH_FOR.change);
+      const opened = await waitFor(() => pathRef.current === PATH_FOR.change, 2500);
+      if (opened) await speakAsync("Change scanner opened.");
+      else await speakAsync("I couldn't open the change scanner. Please try again.");
+      return;
+    }
     navRef.current(PATH_FOR[key]);
     await wait(150);
     const info = moduleInfo(PATH_FOR[key]);
