@@ -40,7 +40,7 @@ export default function BillChecker() {
     try {
       const data = await analyzeBill(img.base64, img.mimeType);
       setResult(data); setLoading(false);
-      if (data?.verified && setSharedBill) setSharedBill(data.total);
+      if (data && setSharedBill && data.total) setSharedBill(data.total);
       return data;
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || "Something went wrong while reading the bill.";

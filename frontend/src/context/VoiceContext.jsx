@@ -69,10 +69,11 @@ export function VoiceProvider({ children }) {
   const handsFreeRef = useRef(false);
   const actionsRef = useRef({});
   const recognitionRef = useRef(null);
-  const sharedRef = useRef({ billAmount: null, cashPaid: null });
+  const sharedRef = useRef({ billAmount: null, cashPaid: null, expectedChange: null, receivedChange: null });
 
   const setSharedBill = useCallback((n) => { sharedRef.current.billAmount = n; }, []);
   const setSharedCash = useCallback((n) => { sharedRef.current.cashPaid = n; }, []);
+  const setSharedReceived = useCallback((n) => { sharedRef.current.receivedChange = n; }, []);
 
   const registerActions = useCallback((obj) => {
     Object.assign(actionsRef.current, obj);
@@ -155,6 +156,7 @@ export function VoiceProvider({ children }) {
     }
 
     const expected = Math.max(0, +(cashp - bill).toFixed(2));
+    sharedRef.current.expectedChange = expected;
     await speakAsync(`Expected change is ${expected} rupees.`);
 
     // Ask before opening the real scanner; open ONLY on an explicit yes.
@@ -328,6 +330,7 @@ export function VoiceProvider({ children }) {
       const b = sharedRef.current.billAmount, c = sharedRef.current.cashPaid;
       if (b != null && c != null) {
         const e = Math.max(0, +(c - b).toFixed(2));
+        sharedRef.current.expectedChange = e;
         await speakAsync(`Expected change is ${e} rupees.`);
       }
     };
@@ -433,6 +436,6 @@ export function VoiceProvider({ children }) {
 
   useEffect(() => () => stopHandsFree(), [stopHandsFree]);
 
-  const value = { handsFree, status, supported, toggleHandsFree, startHandsFree, stopHandsFree, registerActions, setSharedBill, setSharedCash };
+  const value = { handsFree, status, supported, toggleHandsFree, startHandsFree, stopHandsFree, registerActions, setSharedBill, setSharedCash, setSharedReceived };
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }

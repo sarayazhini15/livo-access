@@ -35,7 +35,7 @@ export default function ChangeChecker() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [received, setReceived] = useState(null);
-  const { registerActions } = useVoice();
+  const { registerActions, setSharedReceived } = useVoice();
 
   const billNum = parseFloat(bill) || 0;
   const tenderedNum = parseFloat(tendered) || 0;
@@ -66,6 +66,7 @@ export default function ChangeChecker() {
       if (!data.detected) {
         return { ok: false, reason: "unclear", spoken: "I can't clearly identify the change. Please scan again." };
       }
+      if (setSharedReceived) setSharedReceived(data.total);
       let spoken;
       if (Math.abs(diff) < 0.5) spoken = "Change is correct.";
       else spoken = `You should receive ${exp} rupees, but I detected ${data.total} rupees.`;
@@ -75,7 +76,7 @@ export default function ChangeChecker() {
       setError(msg); setLoading(false);
       return { ok: false, reason: "error" };
     }
-  }, []);
+  }, [setSharedReceived]);
 
   const handleImage = useCallback(async (img, opts = {}) => {
     pendingRef.current = img; setError("");
