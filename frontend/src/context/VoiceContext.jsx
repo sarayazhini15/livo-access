@@ -36,6 +36,24 @@ function parseAmount(text) {
   const m = text.replace(/,/g, "").match(/\d+(\.\d+)?/);
   return m ? parseFloat(m[0]) : null;
 }
+// Extract bill and/or cash amounts from a single natural utterance.
+function extractBillCash(text) {
+  const s = (text || "").toLowerCase().replace(/,/g, "");
+  const nums = (s.match(/\d+(\.\d+)?/g) || []).map(Number);
+  let bill = null, cash = null;
+  const billM = s.match(/bill[^0-9]*(\d+(\.\d+)?)/);
+  const cashM = s.match(/(?:paid|pay|handed|hand over|handed over|cash|gave|give|tender)[^0-9]*(\d+(\.\d+)?)/);
+  if (billM) bill = Number(billM[1]);
+  if (cashM) cash = Number(cashM[1]);
+  if (bill == null && cash == null) {
+    if (nums.length >= 1) bill = nums[0];
+    if (nums.length >= 2) cash = nums[1];
+  } else {
+    if (bill != null && cash == null && nums.length >= 2) { const o = nums.find((n) => n !== bill); if (o != null) cash = o; }
+    if (cash != null && bill == null && nums.length >= 2) { const o = nums.find((n) => n !== cash); if (o != null) bill = o; }
+  }
+  return { bill, cash };
+}
 
 export function VoiceProvider({ children }) {
   const navigate = useNavigate();
@@ -96,40 +114,49 @@ export function VoiceProvider({ children }) {
     });
   }, []);
 
-  const askAmount = useCallback(async (prompt) => {
-    for (let i = 0; i < 2; i++) {
-      await speakAsync(prompt);
-      const t = await listenOnceAsync();
-      if (t != null) { const n = parseAmount(t); if (n != null) return n; }
-      await speakAsync("Please say the amount in rupees.");
-    }
-    return null;
-  }, [speakAsync, listenOnceAsync]);
-
-  const runChangeSetup = useCallback(async ({ assumeFromCash = false } = {}) => {
+  const runChangeSetup = useCallback(async () => {
     let bill = sharedRef.current.billAmount;
     let cashp = sharedRef.current.cashPaid;
     if (bill != null && actionsRef.current.setBillAmount) actionsRef.current.setBillAmount(bill);
     if (cashp != null && actionsRef.current.setTendered) actionsRef.current.setTendered(cashp);
 
+    // Ask for the bill amount (a single utterance may contain both values)
     if (bill == null) {
-      bill = await askAmount(assumeFromCash ? "What was the bill amount?" : "Tell me the bill amount.");
-      if (bill == null) { await speakAsync("I didn't catch the bill amount. You can type it or say it again."); return; }
+      let got = false;
+      for (let i = 0; i < 2 && !got; i++) {
+        await speakAsync(i === 0 ? "Tell me the bill amount." : "I couldn't understand the amount. Please say it again.");
+        const t = await listenOnceAsync();
+        if (t != null) {
+          const ex = extractBillCash(t);
+          if (ex.bill != null) { bill = ex.bill; if (ex.cash != null && cashp == null) cashp = ex.cash; got = true; }
+        }
+      }
+      if (!got) { await speakAsync("I couldn't understand the amount. Please say it again, or type it."); return; }
       actionsRef.current.setBillAmount && actionsRef.current.setBillAmount(bill);
       sharedRef.current.billAmount = bill;
+      if (cashp != null) { actionsRef.current.setTendered && actionsRef.current.setTendered(cashp); sharedRef.current.cashPaid = cashp; }
     }
+
+    // Ask for the cash handed over
     if (cashp == null) {
-      cashp = await askAmount("How much cash did you pay?");
-      if (cashp == null) { await speakAsync("I didn't catch the cash amount. You can type it or say it again."); return; }
+      let got = false;
+      for (let i = 0; i < 2 && !got; i++) {
+        await speakAsync(i === 0 ? "Tell me the cash you handed over." : "I couldn't understand the amount. Please say it again.");
+        const t = await listenOnceAsync();
+        if (t != null) {
+          const ex = extractBillCash(t);
+          const val = ex.cash != null ? ex.cash : ex.bill; // a lone number here is the cash amount
+          if (val != null) { cashp = val; got = true; }
+        }
+      }
+      if (!got) { await speakAsync("I couldn't understand the amount. Please say it again, or type it."); return; }
       actionsRef.current.setTendered && actionsRef.current.setTendered(cashp);
       sharedRef.current.cashPaid = cashp;
     }
+
     const expected = Math.max(0, +(cashp - bill).toFixed(2));
-    await speakAsync(`You should receive ${expected} rupees.`);
-    await waitFor(() => !!actionsRef.current.openCamera, 2000);
-    actionsRef.current.openCamera && actionsRef.current.openCamera();
-    await speakAsync("Say capture to scan the change.");
-  }, [askAmount, speakAsync]);
+    await speakAsync(`Expected change is ${expected} rupees.`);
+  }, [speakAsync, listenOnceAsync]);
 
   // --- command handling ---
   const doOpen = useCallback(async (key, phrase) => {
@@ -146,12 +173,9 @@ export function VoiceProvider({ children }) {
         actionsRef.current.setBillAmount && actionsRef.current.setBillAmount(bill);
         actionsRef.current.setTendered && actionsRef.current.setTendered(cashp);
         const expected = Math.max(0, +(cashp - bill).toFixed(2));
-        await speakAsync(`You should receive ${expected} rupees.`);
-        await waitFor(() => !!actionsRef.current.openCamera, 2000);
-        actionsRef.current.openCamera && actionsRef.current.openCamera();
-        await speakAsync("Say capture to scan the change.");
+        await speakAsync(`Expected change is ${expected} rupees.`);
       } else {
-        await runChangeSetup({ assumeFromCash: false });
+        await runChangeSetup();
       }
       return;
     }
@@ -287,25 +311,23 @@ export function VoiceProvider({ children }) {
       const b = sharedRef.current.billAmount, c = sharedRef.current.cashPaid;
       if (b != null && c != null) {
         const e = Math.max(0, +(c - b).toFixed(2));
-        await speakAsync(`You should receive ${e} rupees. Say scan change when ready.`);
+        await speakAsync(`Expected change is ${e} rupees.`);
       }
     };
 
     // change amount entry by voice — fills the REAL fields + shared store (only on Change screen)
     if (pathRef.current === "/change-checker" && /\d/.test(s) && !/\b(scan|open|capture)\b/.test(s)) {
-      const n = parseAmount(s);
-      if (n != null && /\bbill\b/.test(s)) {
-        a.setBillAmount && a.setBillAmount(n); setSharedBill(n);
-        await speakAsync(`Bill amount set to ${n} rupees.`);
-        await maybeExpected();
-        return true;
+      const ex = extractBillCash(s);
+      let did = false;
+      if (ex.bill != null && (/\bbill\b/.test(s) || ex.cash != null || sharedRef.current.billAmount == null)) {
+        a.setBillAmount && a.setBillAmount(ex.bill); setSharedBill(ex.bill);
+        await speakAsync(`Bill amount set to ${ex.bill} rupees.`); did = true;
       }
-      if (n != null && /\b(paid|pay|cash|gave|give|handed|tender)\b/.test(s)) {
-        a.setTendered && a.setTendered(n); setSharedCash(n);
-        await speakAsync(`Cash paid set to ${n} rupees.`);
-        await maybeExpected();
-        return true;
+      if (ex.cash != null) {
+        a.setTendered && a.setTendered(ex.cash); setSharedCash(ex.cash);
+        await speakAsync(`Cash handed over set to ${ex.cash} rupees.`); did = true;
       }
+      if (did) { await maybeExpected(); return true; }
     }
 
     // explicit cash / change scanner open commands (priority over generic capture)
@@ -348,7 +370,12 @@ export function VoiceProvider({ children }) {
   }, [doCapture, doUpload, doAnalyze, doOpen, speakAsync, setSharedBill, setSharedCash]);
 
   const runLoop = useCallback(async () => {
-    await speakAsync("Voice assistant ready. Say open bill, open cash, open change, or go home. Say stop to exit.");
+    // If activated while on the Change screen, go straight into the guided amount entry.
+    if (pathRef.current === "/change-checker") {
+      await runChangeSetup();
+    } else {
+      await speakAsync("Voice assistant ready. Say open bill, open cash, open change, or go home. Say stop to exit.");
+    }
     while (handsFreeRef.current) {
       setStatus("listening");
       await wait(200);
@@ -362,7 +389,7 @@ export function VoiceProvider({ children }) {
     handsFreeRef.current = false;
     setHandsFree(false);
     setStatus("idle");
-  }, [handleCommand, listenOnceAsync, speakAsync]);
+  }, [handleCommand, listenOnceAsync, speakAsync, runChangeSetup]);
 
   const startHandsFree = useCallback(() => {
     if (handsFreeRef.current) return;

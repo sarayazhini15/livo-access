@@ -1,53 +1,23 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { ScanLine, Coins, Volume2, Loader2, AlertTriangle, CheckCircle2, Mic } from "lucide-react";
+import { ScanLine, Coins, Volume2, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
 import CameraCapture from "@/components/CameraCapture";
 import { scanCash } from "@/lib/api";
 import { fileToResizedBase64 } from "@/lib/image";
-import { speak, listenOnce, isSpeechRecognitionSupported } from "@/lib/speech";
+import { speak } from "@/lib/speech";
 import { useVoice } from "@/context/VoiceContext";
 
 const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`;
 
-function parseAmount(text) {
-  if (!text) return null;
-  const m = text.replace(/,/g, "").match(/\d+(\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
-}
-
+// Manual entry only. Voice entry is handled by the single global Voice Assistant.
 function AmountField({ label, value, onChange, testid }) {
-  const [listening, setListening] = useState(false);
-  const supported = isSpeechRecognitionSupported();
-  const startVoice = () => {
-    speak(`Say the ${label}.`);
-    setTimeout(() => {
-      listenOnce({
-        onStart: () => setListening(true),
-        onEnd: () => setListening(false),
-        onError: () => { setListening(false); speak("I did not catch that. Please type the amount."); },
-        onResult: (t) => {
-          const amt = parseAmount(t);
-          if (amt != null) { onChange(String(amt)); speak(`${label} set to ${amt} rupees.`); }
-          else speak("I did not catch a number. Please type the amount.");
-        },
-      });
-    }, 700);
-  };
   return (
     <div className="space-y-2">
       <label className="block text-lg font-bold uppercase tracking-widest text-primary">{label}</label>
-      <div className="flex items-stretch gap-3">
-        <div className="flex items-center flex-1 border-4 border-white bg-[#111111]">
-          <span className="px-4 font-heading text-2xl sm:text-3xl font-black text-primary">₹</span>
-          <input type="number" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" data-testid={testid}
-            className="w-full bg-transparent text-white font-heading text-2xl sm:text-3xl font-bold py-4 pr-4 outline-none focus:ring-4 focus:ring-primary" />
-        </div>
-        {supported && (
-          <button onClick={startVoice} data-testid={`${testid}-mic`} aria-label={`Say the ${label}`}
-            className={`w-16 shrink-0 flex items-center justify-center border-4 transition-colors duration-75 focus:outline-none focus:ring-4 focus:ring-primary ${listening ? "bg-primary text-black border-primary animate-pulse" : "bg-black text-primary border-white"}`}>
-            <Mic size={32} strokeWidth={2.5} aria-hidden="true" />
-          </button>
-        )}
+      <div className="flex items-center border-4 border-white bg-[#111111]">
+        <span className="px-4 font-heading text-2xl sm:text-3xl font-black text-primary">₹</span>
+        <input type="number" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" data-testid={testid}
+          className="w-full bg-transparent text-white font-heading text-2xl sm:text-3xl font-bold py-4 pr-4 outline-none focus:ring-4 focus:ring-primary" />
       </div>
     </div>
   );
