@@ -25,6 +25,14 @@ function moduleInfo(path) {
 
 const PATH_FOR = { bill: "/bill-checker", cash: "/cash-assistant", change: "/change-checker" };
 
+// After a SUCCESSFUL voice analysis, offer to move to the next module (voice yes/no).
+const TRANSITIONS = {
+  bill: { ask: "Bill verified. Can we move to Cash?", nextPath: "/cash-assistant", opened: "Cash scanner opened." },
+  cash: { ask: "Cash verified. Can we move to Change?", nextPath: "/change-checker", opened: "Change checker opened." },
+};
+const YES_RE = /\b(yes|yeah|yep|yup|sure|ok|okay|move|proceed|continue|go ahead|please|do)\b/;
+const NO_RE = /\b(no|nope|nah|stay|cancel|don'?t|do not|not now)\b/;
+
 export function VoiceProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -121,19 +129,45 @@ export function VoiceProvider({ children }) {
     else await speakAsync("No image was selected.");
   }, [speakAsync]);
 
+  const askTransition = useCallback(async (trans) => {
+    await speakAsync(trans.ask);
+    for (let i = 0; i < 2; i++) {
+      const t = await listenOnceAsync();
+      if (t != null) {
+        const s = t.toLowerCase();
+        if (YES_RE.test(s)) {
+          navRef.current(trans.nextPath);
+          await wait(150);
+          await speakAsync(trans.opened);
+          return true;
+        }
+        if (NO_RE.test(s)) {
+          await speakAsync("Okay. Thank you for using LIVO.");
+          return false;
+        }
+      }
+      await speakAsync("Please say yes or no.");
+    }
+    return true;
+  }, [speakAsync, listenOnceAsync]);
+
   const doAnalyze = useCallback(async () => {
     const mod = moduleInfo(pathRef.current);
-    if (!mod) { await speakAsync("Please open a scanner first. Say open bill, open cash, or open change."); return; }
+    if (!mod) { await speakAsync("Please open a scanner first. Say open bill, open cash, or open change."); return true; }
     const a = actionsRef.current;
-    if (!a.analyzePending) { await speakAsync("There is nothing to analyze here."); return; }
+    if (!a.analyzePending) { await speakAsync("There is nothing to analyze here."); return true; }
     await speakAsync(`Analyzing your ${mod.noun}.`);
     setStatus("working");
-    let summary = null;
-    try { summary = await a.analyzePending(); } catch (e) { summary = null; }
+    let res = null;
+    try { res = await a.analyzePending(); } catch (e) { res = null; }
     setStatus("listening");
-    if (summary) await speakAsync(summary);
-    else await speakAsync("Please capture or upload an image first.");
-  }, [speakAsync]);
+    if (!res || !res.summary) { await speakAsync("Please capture or upload an image first."); return true; }
+    await speakAsync(res.summary);
+    const trans = TRANSITIONS[mod.key];
+    if (res.ok && trans) return await askTransition(trans);
+    await speakAsync("What next?");
+    return true;
+  }, [speakAsync, askTransition]);
 
   const handleCommand = useCallback(async (transcript) => {
     const s = transcript.toLowerCase().trim();
@@ -159,7 +193,7 @@ export function VoiceProvider({ children }) {
     }
     // analyze
     if (/\b(analyze|analyse|check this|check it|read this|read it|read the bill|check the bill)\b/.test(s)) {
-      await doAnalyze(); await speakAsync("What next?"); return true;
+      return await doAnalyze();
     }
     // repeat
     if (/\b(repeat|read again|say again|replay)\b/.test(s)) {

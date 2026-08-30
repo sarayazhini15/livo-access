@@ -79,7 +79,8 @@ export default function CashAssistant() {
       analyzePending: async () => {
         if (!pendingRef.current) return null;
         const data = await runAnalysis(pendingRef.current);
-        return data ? voiceSummary(data) : "Sorry, I could not scan the cash. Please try again.";
+        if (!data) return { summary: "Sorry, I could not scan the cash. Please try again.", ok: false };
+        return { summary: voiceSummary(data), ok: !!data.detected };
       },
       replay: () => result && speak(fullSpeech(result)),
     });

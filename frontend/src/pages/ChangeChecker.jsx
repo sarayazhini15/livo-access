@@ -154,9 +154,9 @@ export default function ChangeChecker() {
       analyzePending: async () => {
         if (!pendingRef.current) return null;
         const r = await runAnalysis(pendingRef.current);
-        if (r.ok) return r.spoken;
-        if (r.reason === "amounts") return "Please enter the bill amount and the cash you handed over first.";
-        return "Sorry, I could not scan the change. Please try again.";
+        if (r.ok) return { summary: r.spoken, ok: true };
+        if (r.reason === "amounts") return { summary: "Please enter the bill amount and the cash you handed over first.", ok: false };
+        return { summary: "Sorry, I could not scan the change. Please try again.", ok: false };
       },
       replay: () => verdict && speak(`Expected change is ${expected} rupees. You received ${receivedTotal} rupees. ${verdict.speech}`),
     });

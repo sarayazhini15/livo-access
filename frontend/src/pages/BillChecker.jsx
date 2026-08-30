@@ -80,7 +80,8 @@ export default function BillChecker() {
       analyzePending: async () => {
         if (!pendingRef.current) return null;
         const data = await runAnalysis(pendingRef.current);
-        return data ? voiceSummary(data) : "Sorry, I could not read your bill. Please try again.";
+        if (!data) return { summary: "Sorry, I could not read your bill. Please try again.", ok: false };
+        return { summary: voiceSummary(data), ok: !!data.verified };
       },
       replay: () => result && speak(fullSpeech(result)),
     });
