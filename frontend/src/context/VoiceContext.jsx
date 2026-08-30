@@ -194,6 +194,10 @@ export function VoiceProvider({ children }) {
       navRef.current("/"); await speakAsync("Home opened."); return true;
     }
 
+    // explicit cash / change scanner open commands (priority over generic capture)
+    if (/\b(cash)\b/.test(s) && /\b(scan|open)\b/.test(s)) { await doOpen("cash", s); return true; }
+    if (/\b(change)\b/.test(s) && /\b(scan|open)\b/.test(s)) { await doOpen("change", s); return true; }
+
     // capture
     if (/\b(capture|take a photo|take photo|scan now|snap|shoot|take picture)\b/.test(s)) {
       await doCapture(); await speakAsync("What next?"); return true;
