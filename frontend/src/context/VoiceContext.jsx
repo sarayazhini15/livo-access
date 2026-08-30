@@ -319,6 +319,12 @@ export function VoiceProvider({ children }) {
     if (/\b(stop|exit|quit|turn off|goodbye|bye|cancel voice)\b/.test(s)) {
       await speakAsync("Voice assistant off."); return false;
     }
+    if (/\b(start over|start again|new transaction|reset|clear all|clear everything)\b/.test(s)) {
+      sharedRef.current = { billAmount: null, cashPaid: null, expectedChange: null, receivedChange: null };
+      navRef.current("/");
+      await speakAsync("Starting over. Bill, cash and change are cleared.");
+      return true;
+    }
     if (/\b(go back|^back$|\bback\b|previous)\b/.test(s) && !/\bbill|cash|change|home\b/.test(s)) {
       navRef.current(-1); await speakAsync("Going back."); return true;
     }

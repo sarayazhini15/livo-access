@@ -124,38 +124,32 @@ def _verify_bill(data: dict) -> dict:
         })
 
     subtotal = _num(data.get("subtotal"))
+    discount = _num(data.get("discount")) + _num(data.get("coupon"))
     tax = _num(data.get("tax"))
+    delivery = _num(data.get("delivery_charge"))
+    service = _num(data.get("service_charge")) + _num(data.get("handling_charge")) + _num(data.get("platform_charge"))
+    other = _num(data.get("other_adjustments"))  # signed: + adds, - subtracts
     total = _num(data.get("total"))
 
     issues = []
-    tol = 0.5  # rupee tolerance for rounding
+    tol = 1.0  # rupee tolerance for rounding/percentage taxes
 
-    # 1. line item math
-    for it in items:
-        expected = round(it["quantity"] * it["unit_price"], 2)
-        if it["unit_price"] and abs(expected - it["line_total"]) > tol:
-            issues.append(
-                f"{it['name']}: {int(it['quantity']) if it['quantity']==int(it['quantity']) else it['quantity']} x rupees {it['unit_price']:.2f} should be rupees {expected:.2f}, but the bill shows rupees {it['line_total']:.2f}."
-            )
-
-    # 2. subtotal
+    # Subtotal falls back to the sum of the line items when not printed.
     sum_lines = round(sum(it["line_total"] for it in items), 2)
     computed_subtotal = subtotal if subtotal else sum_lines
-    if subtotal and items and abs(sum_lines - subtotal) > tol:
-        issues.append(
-            f"The items add up to rupees {sum_lines:.2f}, but the subtotal shown is rupees {subtotal:.2f}."
-        )
 
-    # 3. final total = subtotal + tax
-    expected_total = round(computed_subtotal + tax, 2)
+    # Reconcile using ONLY the components actually found on the bill.
+    expected_total = round(computed_subtotal - discount + tax + delivery + service + other, 2)
+
     if not total:
-        if not items:
+        if not items and computed_subtotal == 0:
             issues.append("The bill could not be read clearly. Please try again with a sharper, well-lit photo.")
         else:
-            issues.append("The final total could not be read from the bill. Please try again with a clearer photo.")
+            issues.append("The final amount could not be read from the bill. Please try again with a clearer photo.")
     elif abs(expected_total - total) > tol:
+        diff = round(abs(total - expected_total), 2)
         issues.append(
-            f"Subtotal rupees {computed_subtotal:.2f} plus tax rupees {tax:.2f} should be rupees {expected_total:.2f}, but the final total shows rupees {total:.2f}."
+            f"I found a difference of rupees {diff:.2f} between the items and the final amount that I could not fully explain. Please verify the bill."
         )
 
     verified = len(issues) == 0
@@ -166,7 +160,11 @@ def _verify_bill(data: dict) -> dict:
         "currency": "INR",
         "items": items,
         "subtotal": computed_subtotal,
+        "discount": round(discount, 2),
         "tax": tax,
+        "delivery_charge": delivery,
+        "service_charge": service,
+        "other_adjustments": other,
         "total": total if total else expected_total,
         "verified": verified,
         "status": "BILL VERIFIED" if verified else "CHECK BILL",
@@ -215,12 +213,24 @@ BILL_PROMPT = (
     '  "date": "purchase date as printed",\n'
     '  "items": [{"name": "product name", "quantity": number, "unit_price": number, "line_total": number}],\n'
     '  "subtotal": number,\n'
+    '  "discount": number,\n'
+    '  "coupon": number,\n'
     '  "tax": number,\n'
+    '  "delivery_charge": number,\n'
+    '  "service_charge": number,\n'
+    '  "other_adjustments": number,\n'
     '  "total": number\n'
     "}\n"
-    "Rules: numbers must be plain numbers without currency symbols or commas. "
-    "If quantity is not printed assume 1. If a field is missing use null. "
-    "line_total is the amount printed for that line. Return JSON only, no explanation."
+    "Field meanings: subtotal = items total before adjustments; discount = any discount amount reduced (as a POSITIVE number); "
+    "coupon = any coupon/promotional reduction (POSITIVE number); tax = GST or other taxes added; "
+    "delivery_charge = delivery/shipping fee; service_charge = service, handling or platform fee; "
+    "other_adjustments = any other clearly stated adjustment, SIGNED (positive if it adds to the amount, negative if it reduces it); "
+    "total = the final payable amount / amount paid.\n"
+    "CRITICAL RULES: numbers must be plain numbers without currency symbols or commas. "
+    "If quantity is not printed assume 1. If a field is NOT printed on the bill, use null — "
+    "NEVER invent or assume a discount, coupon, tax, or fee that is not clearly visible. "
+    "Only extract values actually shown. line_total is the amount printed for that line. "
+    "Return JSON only, no explanation."
 )
 
 CASH_SYSTEM = (

@@ -10,18 +10,27 @@ import { useVoice } from "@/context/VoiceContext";
 
 const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`;
 
+function reconSpeech(r) {
+  const parts = [`Your items total ${rupees(r.subtotal)}.`];
+  if (r.discount > 0) parts.push(`A discount of ${rupees(r.discount)} was applied.`);
+  if (r.tax > 0) parts.push(`Tax of ${rupees(r.tax)} was added.`);
+  if (r.delivery_charge > 0) parts.push(`Delivery charge of ${rupees(r.delivery_charge)}.`);
+  if (r.service_charge > 0) parts.push(`Service charge of ${rupees(r.service_charge)}.`);
+  if (r.other_adjustments && r.other_adjustments !== 0) parts.push(`An adjustment of ${rupees(Math.abs(r.other_adjustments))} was ${r.other_adjustments > 0 ? "added" : "applied"}.`);
+  parts.push(`The final amount is ${rupees(r.total)}.`);
+  if (r.verified) parts.push("The bill calculation matches.");
+  else parts.push((r.issues && r.issues[0]) || "Please verify the bill.");
+  return parts.join(" ");
+}
 function fullSpeech(r) {
   const parts = [`Bill from ${r.merchant}.`];
   if (r.date && r.date !== "Not found") parts.push(`Dated ${r.date}.`);
   (r.items || []).forEach((it) => parts.push(`${it.name}, ${it.quantity} at ${rupees(it.unit_price)} each, total ${rupees(it.line_total)}.`));
-  parts.push(`Subtotal ${rupees(r.subtotal)}. Tax ${rupees(r.tax)}. Final total ${rupees(r.total)}.`);
-  if (r.verified) parts.push("Bill verified. The calculations are correct.");
-  else { parts.push("Check bill. There is a problem."); (r.issues || []).forEach((i) => parts.push(i)); }
+  parts.push(reconSpeech(r));
   return parts.join(" ");
 }
 function voiceSummary(r) {
-  if (r.verified) return `Bill verified. Total ${rupees(r.total)}.`;
-  return `Check bill. ${(r.issues && r.issues[0]) || "The totals do not match."} Total ${rupees(r.total)}.`;
+  return reconSpeech(r);
 }
 
 export default function BillChecker() {
@@ -174,7 +183,21 @@ export default function BillChecker() {
 
             <div className="border-4 border-white bg-[#111111] p-5 space-y-2">
               <div className="flex justify-between text-lg sm:text-xl text-white"><span>Subtotal</span><span className="font-bold">{rupees(result.subtotal)}</span></div>
-              <div className="flex justify-between text-lg sm:text-xl text-white"><span>Tax</span><span className="font-bold">{rupees(result.tax)}</span></div>
+              {result.discount > 0 && (
+                <div className="flex justify-between text-lg sm:text-xl text-white"><span>Discount</span><span className="font-bold">- {rupees(result.discount)}</span></div>
+              )}
+              {result.tax > 0 && (
+                <div className="flex justify-between text-lg sm:text-xl text-white"><span>Tax</span><span className="font-bold">{rupees(result.tax)}</span></div>
+              )}
+              {result.delivery_charge > 0 && (
+                <div className="flex justify-between text-lg sm:text-xl text-white"><span>Delivery</span><span className="font-bold">{rupees(result.delivery_charge)}</span></div>
+              )}
+              {result.service_charge > 0 && (
+                <div className="flex justify-between text-lg sm:text-xl text-white"><span>Service / Fees</span><span className="font-bold">{rupees(result.service_charge)}</span></div>
+              )}
+              {result.other_adjustments && result.other_adjustments !== 0 ? (
+                <div className="flex justify-between text-lg sm:text-xl text-white"><span>Adjustment</span><span className="font-bold">{result.other_adjustments < 0 ? "- " : ""}{rupees(Math.abs(result.other_adjustments))}</span></div>
+              ) : null}
               <div className="flex justify-between border-t-2 border-primary pt-2 font-heading text-2xl sm:text-3xl font-black text-primary"><span>TOTAL</span><span>{rupees(result.total)}</span></div>
             </div>
 
